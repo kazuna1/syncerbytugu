@@ -1,0 +1,37 @@
+{
+  "name": "syncerbytugu",
+  "version": "0.1.0",
+  "description": "Sync Claude Code conversation history between your computers through one private git repo. Exit on one PC, `claude --resume` on another.",
+  "type": "module",
+  "bin": {
+    "syncerbytugu": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.test.json && node --test .test-build/test/*.test.js",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "claude-code",
+    "sync",
+    "sessions",
+    "claude",
+    "windows",
+    "resume",
+    "git"
+  ],
+  "author": "Tuguldur Munkhbat",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}
