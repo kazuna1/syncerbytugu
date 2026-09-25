@@ -30,6 +30,14 @@
   ],
   "author": "Tuguldur Munkhbat",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kazuna1/syncerbytugu.git"
+  },
+  "homepage": "https://github.com/kazuna1/syncerbytugu#readme",
+  "bugs": {
+    "url": "https://github.com/kazuna1/syncerbytugu/issues"
+  },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "typescript": "^5.5.0"
