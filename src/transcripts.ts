@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { listJsonlRecursive, projectsDir } from './claudePaths.js';
+import { TOKEN_ESC, TOKEN_FWD } from './transform.js';
 
 export interface LocalFile {
   /** absolute path */
@@ -107,14 +108,57 @@ export function listLocalProjects(): LocalProject[] {
 export type MergeDecision = 'write' | 'same' | 'older' | 'conflict';
 
 /**
+ * Both root tokens stand for the project root. On macOS/Linux the escaped and
+ * forward-slash forms of a root are the same string, so a transcript that went
+ * through a Mac comes back with only TOKEN_FWD. Comparing with the tokens
+ * unified keeps that from looking like a different conversation. The tokens
+ * have the same length, so offsets in the normalized text match the original.
+ */
+export function normalizeTokens(s: string): string {
+  return s.split(TOKEN_ESC).join(TOKEN_FWD);
+}
+
+/**
+ * The conversation lines of a transcript: entries with a top-level uuid
+ * (user, assistant, attachment, system). Claude Code also appends bookkeeping
+ * entries without one (title, mode, cost, file-history snapshots) just by
+ * opening a session, so two machines can differ only in those. A line that
+ * can't be parsed counts as conversation, so doubt leads to a conflict copy
+ * rather than a dropped line.
+ */
+function conversationLines(s: string): string[] {
+  return s.split('\n').filter((line) => {
+    if (!line.trim()) return false;
+    try {
+      return typeof (JSON.parse(line.replaceAll('\u0001', '')) as { uuid?: unknown }).uuid === 'string';
+    } catch {
+      return true;
+    }
+  });
+}
+
+function startsWithLines(a: string[], b: string[]): boolean {
+  return a.length >= b.length && b.every((line, i) => a[i] === line);
+}
+
+/**
  * Transcripts are append-only, so the longer one wins when the shorter is a
  * prefix of it. Both inputs must already be in the same (tokenized) space.
+ * If they differ beyond that, but only in bookkeeping lines, the copy with
+ * more conversation wins.
  */
 export function decide(incoming: string, existing: string | null): MergeDecision {
   if (existing === null) return 'write';
   if (incoming === existing) return 'same';
-  if (incoming.length > existing.length && incoming.startsWith(existing)) return 'write';
-  if (existing.length > incoming.length && existing.startsWith(incoming)) return 'older';
+  const inc = normalizeTokens(incoming);
+  const ex = normalizeTokens(existing);
+  if (inc === ex) return 'same';
+  if (inc.length > ex.length && inc.startsWith(ex)) return 'write';
+  if (ex.length > inc.length && ex.startsWith(inc)) return 'older';
+  const incConv = conversationLines(inc);
+  const exConv = conversationLines(ex);
+  if (startsWithLines(exConv, incConv)) return exConv.length === incConv.length ? 'same' : 'older';
+  if (startsWithLines(incConv, exConv)) return 'write';
   return 'conflict';
 }
 
@@ -134,15 +178,56 @@ export function mergeInto(
   toCompare: (destContent: string) => string = (s) => s,
   toWrite: (incomingContent: string) => string = (s) => s,
 ): MergeResult {
-  const existing = fs.existsSync(dest) ? toCompare(readText(dest)) : null;
+  const d = mergeFile(dest, incoming, toCompare, toWrite);
+  if (d === 'write') return 'written';
+  if (d !== 'conflict') return d;
+  mergeFile(conflictPath(dest, conflictMachine), incoming, toCompare, toWrite);
+  return 'conflict';
+}
+
+/**
+ * Write `incoming` to `file` if it is new or extends what is there. When the
+ * existing file is a prefix, only the new tail is appended, so lines a machine
+ * already has keep their exact bytes. When they differ only in bookkeeping
+ * lines, the file is replaced by the copy with more conversation.
+ */
+function mergeFile(
+  file: string,
+  incoming: string,
+  toCompare: (s: string) => string,
+  toWrite: (s: string) => string,
+): MergeDecision {
+  const raw = fs.existsSync(file) ? readText(file) : null;
+  const existing = raw === null ? null : toCompare(raw);
   const d = decide(incoming, existing);
   if (d === 'write') {
-    writeText(dest, toWrite(incoming));
-    return 'written';
+    const appendable = raw !== null && normalizeTokens(incoming).startsWith(normalizeTokens(existing!));
+    writeText(file, appendable ? raw + toWrite(incoming.slice(existing!.length)) : toWrite(incoming));
   }
-  if (d !== 'conflict') return d;
-  const cpath = conflictPath(dest, conflictMachine);
-  const cExisting = fs.existsSync(cpath) ? toCompare(readText(cpath)) : null;
-  if (decide(incoming, cExisting) === 'write') writeText(cpath, toWrite(incoming));
-  return 'conflict';
+  return d;
+}
+
+/** True when a conflict copy holds nothing that its main transcript doesn't already have. */
+export function conflictIsRedundant(conflictFile: string, toCompare: (s: string) => string = (s) => s): boolean {
+  const main = conflictFile.replace(CONFLICT_RE, '.jsonl');
+  if (!fs.existsSync(main) || !fs.existsSync(conflictFile)) return false;
+  const d = decide(toCompare(readText(conflictFile)), toCompare(readText(main)));
+  return d === 'same' || d === 'older';
+}
+
+/**
+ * Delete conflict copies under `dir` that are fully contained in their main
+ * transcript (false conflicts from 0.1.0's Windows/Mac token mismatch, or a
+ * conflict that was later resolved). Never touches anything else.
+ */
+export function pruneRedundantConflicts(dir: string, toCompare: (s: string) => string = (s) => s): number {
+  let n = 0;
+  for (const rel of listJsonlRecursive(dir)) {
+    if (!isConflictFile(rel)) continue;
+    const abs = path.join(dir, ...rel.split('/'));
+    if (!conflictIsRedundant(abs, toCompare)) continue;
+    fs.unlinkSync(abs);
+    n++;
+  }
+  return n;
 }

@@ -12,7 +12,12 @@ export interface Config {
   intervalMinutes: number;
 }
 
+// Bump when merge behavior changes so every file is compared again once.
+// 2: Windows/Mac root tokens compare as equal (0.1.1).
+const CACHE_VERSION = 2;
+
 export interface State {
+  cacheVersion?: number;
   lastPush?: string;
   lastPull?: string;
   /** local transcript path -> "mtimeMs:size" at the last successful push */
@@ -86,6 +91,9 @@ export function saveConfig(cfg: Config): void {
 
 export function loadState(): State {
   const s = readJson<Partial<State>>(paths.state(), {});
+  if (s.cacheVersion !== CACHE_VERSION) {
+    return { ...s, cacheVersion: CACHE_VERSION, pushCache: {}, pullCache: {}, unmapped: s.unmapped || [], conflicts: [] };
+  }
   return {
     ...s,
     pushCache: s.pushCache || {},

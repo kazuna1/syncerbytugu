@@ -2,13 +2,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Config, State, loadState, readJson, saveState, writeJson } from './config.js';
 import { listJsonlRecursive, slugDirFor } from './claudePaths.js';
-import { git, gitOk } from './gitRepo.js';
+import { NETWORK_TIMEOUT_MS, git, gitOk } from './gitRepo.js';
 import { folderForKey, projectKeyFor } from './identity.js';
 import { acquireLock } from './lock.js';
 import { log } from './log.js';
 import { loadRegistry, remember, resolveLocalPath, saveRegistry } from './registry.js';
 import { detokenize, tokenize } from './transform.js';
-import { CONFLICT_RE, listLocalProjects, mergeInto, readText } from './transcripts.js';
+import {
+  CONFLICT_RE,
+  conflictIsRedundant,
+  isConflictFile,
+  listLocalProjects,
+  mergeInto,
+  pruneRedundantConflicts,
+  readText,
+} from './transcripts.js';
 
 interface ProjectMeta {
   key: string;
@@ -51,7 +59,7 @@ export async function resetToRemote(repo: string): Promise<void> {
   if (!fs.existsSync(path.join(repo, '.git'))) {
     throw new Error(`Sessions repo clone missing at ${repo}. Run init again.`);
   }
-  await gitOk(['fetch', '--quiet', 'origin'], repo);
+  await gitOk(['fetch', '--quiet', 'origin'], repo, NETWORK_TIMEOUT_MS);
   if (await hasUpstream(repo)) {
     await gitOk(['reset', '--quiet', '--hard', '@{u}'], repo);
   }
@@ -64,7 +72,7 @@ async function commitAndPush(repo: string, message: string): Promise<'nothing' |
   await gitOk(['add', '-A'], repo);
   await gitOk(['commit', '--quiet', '-m', message], repo);
   const args = (await hasUpstream(repo)) ? ['push', '--quiet'] : ['push', '--quiet', '-u', 'origin', 'HEAD'];
-  const r = await git(args, repo);
+  const r = await git(args, repo, NETWORK_TIMEOUT_MS);
   if (r.code === 0) return 'pushed';
   if (/rejected|non-fast-forward|fetch first/i.test(r.stderr)) return 'rejected';
   throw new Error(`git push failed: ${r.stderr.trim()}`);
@@ -72,6 +80,8 @@ async function commitAndPush(repo: string, message: string): Promise<'nothing' |
 
 interface PushRound {
   written: number;
+  /** size of the transcripts written into the clone, for the progress message */
+  bytes: number;
   conflicts: string[];
   cache: Record<string, string>;
 }
@@ -82,7 +92,7 @@ async function applyLocalToRepo(cfg: Config, state: State): Promise<PushRound> {
   const reg = loadRegistry();
   const mFile = machineFile(repo, cfg.machineId);
   const machines = readJson<Record<string, MachineEntry>>(mFile, {});
-  const round: PushRound = { written: 0, conflicts: [], cache: {} };
+  const round: PushRound = { written: 0, bytes: 0, conflicts: [], cache: {} };
   const now = new Date().toISOString();
 
   for (const p of listLocalProjects()) {
@@ -104,6 +114,7 @@ async function applyLocalToRepo(cfg: Config, state: State): Promise<PushRound> {
       const res = mergeInto(dest, incoming, cfg.machineId);
       if (res === 'written') {
         round.written++;
+        round.bytes += incoming.length;
         machines[f.sessionId] = { project: folder, pushedAt: now };
       } else if (res === 'conflict') {
         round.conflicts.push(`${key}/${f.rel}`);
@@ -128,6 +139,11 @@ async function doPush(cfg: Config): Promise<void> {
   for (let attempt = 1; attempt <= 3; attempt++) {
     await resetToRemote(cfg.repoDir);
     const round = await applyLocalToRepo(cfg, state);
+    const pruned = pruneRedundantConflicts(sessionsDir(cfg.repoDir));
+    if (pruned) log.debug(`removed ${pruned} redundant conflict copy(ies) from the repo`);
+    if (round.bytes > 5 * 1024 * 1024) {
+      log.info(`uploading ${round.written} transcript file(s), ${Math.round(round.bytes / 1024 / 1024)} MB ...`);
+    }
     const result = await commitAndPush(cfg.repoDir, `${cfg.machineId} push ${new Date().toISOString()}`);
     if (result === 'rejected') {
       log.debug(`push rejected (attempt ${attempt}), retrying on top of the new remote state`);
@@ -194,6 +210,7 @@ async function doPull(cfg: Config): Promise<void> {
     for (const rel of listJsonlRecursive(projDir)) {
       if (rel.endsWith(ownConflictSuffix)) continue; // our own copy, already local
       const src = path.join(projDir, ...rel.split('/'));
+      if (isConflictFile(rel) && conflictIsRedundant(src)) continue; // nothing the main copy lacks
       const dest = path.join(slugDir, ...rel.split('/'));
       const sig = fileSig(src, `:${root}`);
       if (sig && state.pullCache[rel + '|' + folder] === sig && fs.existsSync(dest)) continue;
@@ -211,12 +228,14 @@ async function doPull(cfg: Config): Promise<void> {
       if (res === 'conflict') {
         conflicts.push(`${meta.key}/${rel}`);
         log.warn(
-          `session ${sessionId} (${meta.key}) differs between this machine and ${origin}; ` +
-            `kept yours and saved theirs as a .conflict-${origin}.jsonl file`,
+          `session ${sessionId} (${meta.key}): this PC's copy and the synced copy (last pushed by ${origin}) ` +
+            `were continued separately; kept this PC's copy and saved the synced one as a .conflict-${origin}.jsonl file`,
         );
       }
       if (sig) state.pullCache[rel + '|' + folder] = sig;
     }
+    const pruned = pruneRedundantConflicts(slugDir, (s) => tokenize(s, root));
+    if (pruned) log.debug(`removed ${pruned} redundant conflict copy(ies) from ${slugDir}`);
   }
 
   const newlyUnmapped = unmapped.filter((k) => !state.unmapped.includes(k));

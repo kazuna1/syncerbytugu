@@ -4,6 +4,8 @@ export interface GitResult {
   code: number;
   stdout: string;
   stderr: string;
+  /** killed because it ran past the timeout */
+  timedOut?: boolean;
 }
 
 /**
@@ -28,16 +30,23 @@ export function git(args: string[], cwd?: string, timeoutMs = 120_000): Promise<
       },
       (err, stdout, stderr) => {
         const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0;
-        resolve({ code, stdout: String(stdout), stderr: String(stderr) || (err && code !== 0 ? err.message : '') });
+        const timedOut = !!err && (err as { killed?: boolean }).killed === true;
+        resolve({ code, stdout: String(stdout), stderr: String(stderr) || (err && code !== 0 ? err.message : ''), timedOut });
       },
     );
   });
 }
 
+/** For clone/fetch/push: the sessions repo can be hundreds of MB on a slow link. */
+export const NETWORK_TIMEOUT_MS = 30 * 60 * 1000;
+
 /** Like git() but throws on a non-zero exit. */
-export async function gitOk(args: string[], cwd?: string): Promise<string> {
-  const r = await git(args, cwd);
-  if (r.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr.trim()}`);
+export async function gitOk(args: string[], cwd?: string, timeoutMs?: number): Promise<string> {
+  const r = await git(args, cwd, timeoutMs);
+  if (r.code !== 0) {
+    const detail = r.timedOut ? `timed out after ${Math.round((timeoutMs ?? 120_000) / 60_000)} min` : r.stderr.trim();
+    throw new Error(`git ${args.join(' ')} failed: ${detail}`);
+  }
   return r.stdout;
 }
 

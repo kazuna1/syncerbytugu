@@ -45,7 +45,9 @@ On the other PC, `cd` into the project (it can be at a different path) and run `
   Folders without a git remote inside your home folder (Desktop, Downloads, ...) are matched by their path relative
   to home; other folders without a remote are matched by folder name.
 - On push, this PC's project path inside the transcript is replaced with a placeholder. On pull, it becomes the other PC's path.
-- Transcripts only grow. The longer version wins when the shorter one is a prefix of it.
+- Transcripts only grow. The longer version wins when the shorter one is a prefix of it, and only the new lines
+  are appended. Claude Code also writes bookkeeping lines (title, mode, cost) just by opening a session, so copies
+  that differ only in those don't count as a conflict: the one with more conversation wins.
   If the same session was continued on both PCs, nothing is overwritten. The other copy is saved next to yours as
   `<session>.conflict-<machine>.jsonl`, and a warning is logged.
 - State lives in `~/.syncerbytugu/`: `config.json`, `registry.json` (project → local folder), `repo/` (clone), `log.txt`.

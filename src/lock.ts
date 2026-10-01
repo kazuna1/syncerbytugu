@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { paths } from './config.js';
 
-const STALE_MS = 2 * 60 * 1000;
+// Longer than any git network timeout, so a slow first upload is never taken over mid-push.
+const STALE_MS = 60 * 60 * 1000;
 
 function pidAlive(pid: number): boolean {
   try {

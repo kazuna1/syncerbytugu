@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { APP, Config, appHome, defaultScanRoots, loadConfig, loadState, paths, saveConfig } from './config.js';
-import { git, gitInstalled, gitOk } from './gitRepo.js';
+import { NETWORK_TIMEOUT_MS, git, gitInstalled, gitOk } from './gitRepo.js';
 import { hooksInstalled, installHooks, uninstallHooks } from './hooks.js';
 import { normalizeRemote } from './identity.js';
 import { log } from './log.js';
@@ -50,7 +50,8 @@ async function prepareClone(cfg: Config): Promise<void> {
       throw new Error(`${repo} exists and is not a git clone. Move it away and retry.`);
     }
     fs.mkdirSync(path.dirname(repo), { recursive: true });
-    await gitOk(['clone', '--quiet', cfg.repoUrl, repo]);
+    log.info('Downloading the sessions repo (a large history can take a few minutes) ...');
+    await gitOk(['clone', '--quiet', cfg.repoUrl, repo], undefined, NETWORK_TIMEOUT_MS);
   }
   await gitOk(['config', 'core.autocrlf', 'false'], repo);
   await gitOk(['config', 'user.name', `${APP} (${cfg.machineId})`], repo);
@@ -115,7 +116,7 @@ export async function init(repoUrl: string, flags: { allowPublic: boolean; machi
     log.warn((e as Error).message);
   }
 
-  log.info('Running first sync ...');
+  log.info('Running first sync (the first upload of a large history can take a few minutes) ...');
   await sync(cfg, { waitMs: 30_000 });
 
   log.info(
