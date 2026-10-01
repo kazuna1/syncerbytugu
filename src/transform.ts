@@ -14,16 +14,21 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function trimRoot(root: string): string {
-  return root.replace(/[\\/]+$/, '');
+/**
+ * The root as written inside JSON (escaped backslashes) and with forward
+ * slashes. A Windows root can reach us in either slash style (Claude sometimes
+ * records cwd as C:/Users/x), so both forms are derived from the backslash one.
+ */
+function rootForms(root: string): { esc: string; fwd: string } {
+  let r = root.replace(/[\\/]+$/, '');
+  if (/^[a-zA-Z]:[\\/]/.test(r) || r.startsWith('\\\\')) r = r.replace(/\//g, '\\');
+  return { esc: r.replace(/\\/g, '\\\\'), fwd: r.replace(/\\/g, '/') };
 }
 
 /** Replace this PC's project root with tokens. Only matches at a path boundary. */
 export function tokenize(content: string, root: string, caseInsensitive = isWin): string {
-  const r = trimRoot(root);
-  if (!r) return content;
-  const esc = r.replace(/\\/g, '\\\\');
-  const fwd = r.replace(/\\/g, '/');
+  const { esc, fwd } = rootForms(root);
+  if (!fwd) return content;
   // boundary: followed by a backslash, slash, closing quote, or end of string
   const boundary = '(?=\\\\|/|"|$)';
   const flags = caseInsensitive ? 'gi' : 'g';
@@ -35,8 +40,6 @@ export function tokenize(content: string, root: string, caseInsensitive = isWin)
 
 /** Replace tokens with this PC's project root (plain string replace, no regex). */
 export function detokenize(content: string, root: string): string {
-  const r = trimRoot(root);
-  const esc = r.replace(/\\/g, '\\\\');
-  const fwd = r.replace(/\\/g, '/');
+  const { esc, fwd } = rootForms(root);
   return content.split(TOKEN_ESC).join(esc).split(TOKEN_FWD).join(fwd);
 }

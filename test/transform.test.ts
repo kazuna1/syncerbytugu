@@ -52,6 +52,13 @@ test('regex special characters in paths and $ in content are safe', () => {
   assert.equal(detokenize(tokenize(s, root, true), root), s);
 });
 
+test('a Windows root given with forward slashes still matches both forms', () => {
+  // Claude sometimes records cwd as C:/Users/x; that must tokenize like C:\Users\x
+  const s = line('C:\\Users\\me', 'see C:/Users/me/a.txt');
+  assert.equal(tokenize(s, 'C:/Users/me', true), tokenize(s, 'C:\\Users\\me', true));
+  assert.equal(detokenize(tokenize(s, 'C:/Users/me', true), 'C:/Users/me'), s);
+});
+
 test('trailing separator on root is ignored', () => {
   const s = line(ROOT);
   assert.equal(tokenize(s, ROOT + '\\', true), tokenize(s, ROOT, true));
