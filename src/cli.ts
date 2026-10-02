@@ -70,6 +70,24 @@ async function register(): Promise<void> {
   log.debug(`register ${key} -> ${cwd}`);
 }
 
+/**
+ * Before a pull, record the current folder if it is a git project, so
+ * `claude -r` (via a pull-first alias) in a freshly cloned project finds its
+ * sessions on the first try. Folders without a remote are skipped: scheduled
+ * runs start in places like System32 or the home folder.
+ */
+async function registerCwd(): Promise<void> {
+  try {
+    const cwd = process.cwd();
+    const key = await projectKeyFor(cwd);
+    if (key === 'home' || key.startsWith('home/') || key.startsWith('name/')) return;
+    const reg = loadRegistry();
+    if (remember(reg, key, cwd, 'hook')) saveRegistry(reg);
+  } catch (e) {
+    log.debug(`registerCwd failed: ${(e as Error).message}`);
+  }
+}
+
 /** Re-launch ourselves detached so the Claude Code hook returns immediately. */
 function background(args: string[]): void {
   const child = spawn(process.execPath, [fileURLToPath(import.meta.url), ...args], {
@@ -114,6 +132,7 @@ async function main(argv: string[]): Promise<number> {
         return 0;
       }
       const cfg = requireConfig();
+      if (cmd !== 'push') await registerCwd();
       const fn = { push, pull, sync }[cmd];
       // Interactive and hook-triggered runs wait for a running sync; scheduled ones just skip.
       const ran = await fn(cfg, { waitMs: cmd === 'push' || !quiet ? 30_000 : 0 });
