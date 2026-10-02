@@ -10,6 +10,7 @@ import { log } from './log.js';
 import { loadRegistry, saveRegistry, scanIntoRegistry } from './registry.js';
 import { scheduler } from './scheduler/index.js';
 import { sync } from './sync.js';
+import { currentVersion, isGitInstall, updateNotice } from './update.js';
 
 const README = `# Private — managed by ${APP}
 
@@ -133,7 +134,7 @@ export async function status(): Promise<void> {
   }
   const state = loadState();
   const reg = loadRegistry();
-  const sched = await scheduler().status();
+  const [sched, notice] = await Promise.all([scheduler().status(), updateNotice()]);
   let sessions = 0;
   let projects = 0;
   try {
@@ -147,6 +148,7 @@ export async function status(): Promise<void> {
   const yes = (b: boolean) => (b ? 'yes' : 'NO');
   console.log(
     [
+      `version         ${currentVersion()}${isGitInstall() ? ' (git checkout)' : ''}`,
       `machine         ${cfg.machineId}`,
       `repo            ${cfg.repoUrl}`,
       `local clone     ${cfg.repoDir}`,
@@ -165,6 +167,7 @@ export async function status(): Promise<void> {
   if (state.conflicts.length) {
     console.log(`\nConflicts (session continued on two PCs; both copies kept):\n  ${state.conflicts.join('\n  ')}`);
   }
+  if (notice) console.log(`\n${notice}`);
 }
 
 export async function uninstall(flags: { purge?: boolean; keep?: boolean }): Promise<void> {

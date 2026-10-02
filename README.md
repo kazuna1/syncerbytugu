@@ -35,6 +35,7 @@ On the other PC, `cd` into the project (it can be at a different path) and run `
 | `syncerbytugu push` / `pull` | One direction only. |
 | `syncerbytugu list` | Local sessions and the project key each maps to. |
 | `syncerbytugu delete` | Pick a conversation from this project (`--all` for every project) and delete it on this PC, in the repo, and on every other machine at its next sync. `delete <session-id>` skips the list; `--yes` skips the confirmation. |
+| `syncerbytugu update` | Update to the newest version: from npm, or `git pull` + build when installed from a git checkout. `status` says when an update is available. |
 | `syncerbytugu uninstall` | Removes the hooks and scheduled tasks. Asks before deleting `~/.syncerbytugu`. Never touches your transcripts. |
 
 ## How it works

@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { APP, requireConfig } from './config.js';
 import { projectKeyFor } from './identity.js';
@@ -9,6 +7,7 @@ import { log, setQuiet } from './log.js';
 import { loadRegistry, remember, saveRegistry } from './registry.js';
 import { deleteSession } from './deleteCmd.js';
 import { init, status, uninstall } from './setup.js';
+import { currentVersion, update } from './update.js';
 import { pull, push, sync } from './sync.js';
 import { countLines, listLocalProjects, readText } from './transcripts.js';
 
@@ -24,6 +23,7 @@ Usage:
   ${APP} delete [<session-id>]     delete a conversation here, in the repo, and on every machine
                                    (no id: pick from this project's sessions; --all for every
                                    project; --yes skips the confirmation)
+  ${APP} update                    update ${APP} (from npm, or git pull + build for a git checkout)
   ${APP} uninstall [--purge|--keep]
   ${APP} register                  (used by the Claude Code SessionStart hook)
 
@@ -31,15 +31,6 @@ Options for init:
   --machine <name>   name for this PC (default: hostname)
   --allow-public     do not refuse a public GitHub repo (NOT recommended)
 `;
-
-function version(): string {
-  const pkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'package.json');
-  try {
-    return (JSON.parse(fs.readFileSync(pkg, 'utf8')) as { version: string }).version;
-  } catch {
-    return 'unknown';
-  }
-}
 
 /** Hook stdin is a JSON object with a cwd field; don't block if nothing arrives. */
 async function readHookCwd(): Promise<string | null> {
@@ -139,6 +130,9 @@ async function main(argv: string[]): Promise<number> {
     case 'delete':
       await deleteSession(requireConfig(), { id: positional[1], all: flags.has('--all'), yes: flags.has('--yes') });
       return 0;
+    case 'update':
+      await update();
+      return 0;
     case 'status':
       await status();
       return 0;
@@ -150,7 +144,7 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     case undefined:
       if (flags.has('--version') || flags.has('-v')) {
-        console.log(version());
+        console.log(currentVersion());
         return 0;
       }
       console.log(HELP);
