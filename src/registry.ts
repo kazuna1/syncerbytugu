@@ -45,7 +45,25 @@ export function resolveLocalPath(reg: Registry, key: string): string | null {
     const hit = reg[parent];
     if (hit) return path.join(hit.path, ...parts.slice(i));
   }
-  return null;
+  return sameNamePath(reg, key);
+}
+
+/**
+ * A project keyed by its folder name on one PC (no git remote there) and by
+ * its remote on another (cloned from GitHub) is the same project when the
+ * names match: name/ladder <-> github.com/you/ladder. Only an unambiguous
+ * match counts.
+ */
+function sameNamePath(reg: Registry, key: string): string | null {
+  const baseName = (p: string) => (p.split(/[\\/]/).filter(Boolean).pop() || '').toLowerCase();
+  if (key.startsWith('name/')) {
+    const name = key.slice('name/'.length);
+    const hits = Object.entries(reg).filter(([k, e]) => !k.startsWith('home') && baseName(e.path) === name);
+    return hits.length === 1 ? hits[0][1].path : null;
+  }
+  const parts = key.split('/');
+  if (parts.length !== 3) return null; // host/owner/repo only, not a subfolder
+  return reg[`name/${parts[2]}`]?.path ?? null;
 }
 
 const SKIP_DIRS = new Set([

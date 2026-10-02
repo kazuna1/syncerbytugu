@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fallbackKey, folderForKey, homePathForKey, normalizeRemote } from '../src/identity.js';
+import { resolveLocalPath } from '../src/registry.js';
 
 test('ssh and https forms normalize to the same key', () => {
   const want = 'github.com/kazuna1/airhouse';
@@ -50,4 +51,16 @@ test('folders inside home are keyed relative to home, so different user names st
   assert.equal(homePathForKey(key, homeB), path.join(homeB, 'desktop', 'my talk'));
   assert.equal(homePathForKey('home', homeB), homeB);
   assert.equal(homePathForKey('github.com/x/y', homeB), null);
+});
+
+test('a folder-name key and a git-remote key with the same name map to the same folder', () => {
+  const at = (p: string) => ({ path: p, source: 'hook' as const, updatedAt: '' });
+  const mac = { 'github.com/kazuna1/ladder': at('/Users/tugu/ladder') };
+  assert.equal(resolveLocalPath(mac, 'name/ladder'), '/Users/tugu/ladder');
+  assert.equal(resolveLocalPath(mac, 'name/other'), null);
+  const win = { 'name/ladder': at('D:\\code\\ladder') };
+  assert.equal(resolveLocalPath(win, 'github.com/kazuna1/ladder'), 'D:\\code\\ladder');
+  assert.equal(resolveLocalPath(win, 'github.com/kazuna1/ladder/sub'), null);
+  const two = { 'github.com/a/ladder': at('/x/ladder'), 'github.com/b/ladder': at('/y/ladder') };
+  assert.equal(resolveLocalPath(two, 'name/ladder'), null, 'ambiguous');
 });
