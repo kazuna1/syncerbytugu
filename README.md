@@ -34,6 +34,7 @@ On the other PC, `cd` into the project (it can be at a different path) and run `
 | `syncerbytugu sync` | Push then pull now. |
 | `syncerbytugu push` / `pull` | One direction only. |
 | `syncerbytugu list` | Local sessions and the project key each maps to. |
+| `syncerbytugu delete` | Pick a conversation from this project (`--all` for every project) and delete it on this PC, in the repo, and on every other machine at its next sync. `delete <session-id>` skips the list; `--yes` skips the confirmation. |
 | `syncerbytugu uninstall` | Removes the hooks and scheduled tasks. Asks before deleting `~/.syncerbytugu`. Never touches your transcripts. |
 
 ## How it works
@@ -54,6 +55,9 @@ On the other PC, `cd` into the project (it can be at a different path) and run `
 
 ## Known limitations
 
+- **Delete conversations with `syncerbytugu delete`.** A session deleted any other way (the VS Code extension, or removing
+  the file) comes back on the next pull, because the repo and your other machines still have it. A deleted conversation's
+  text stays in the private repo's git history.
 - **Exit Claude on one PC before resuming on the other.** If a session diverges, you get a conflict file, not a merge.
 - **The sessions repo must be private.** Transcripts contain everything you typed or pasted into Claude.
   `init` refuses a public GitHub repo.

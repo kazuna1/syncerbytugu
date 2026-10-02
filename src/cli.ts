@@ -7,6 +7,7 @@ import { APP, requireConfig } from './config.js';
 import { projectKeyFor } from './identity.js';
 import { log, setQuiet } from './log.js';
 import { loadRegistry, remember, saveRegistry } from './registry.js';
+import { deleteSession } from './deleteCmd.js';
 import { init, status, uninstall } from './setup.js';
 import { pull, push, sync } from './sync.js';
 import { countLines, listLocalProjects, readText } from './transcripts.js';
@@ -20,6 +21,9 @@ Usage:
   ${APP} pull [--quiet]            download sessions from other PCs (runs every few minutes)
   ${APP} sync [--quiet]            push then pull
   ${APP} list                      list local sessions with their project keys
+  ${APP} delete [<session-id>]     delete a conversation here, in the repo, and on every machine
+                                   (no id: pick from this project's sessions; --all for every
+                                   project; --yes skips the confirmation)
   ${APP} uninstall [--purge|--keep]
   ${APP} register                  (used by the Claude Code SessionStart hook)
 
@@ -132,6 +136,9 @@ async function main(argv: string[]): Promise<number> {
         log.debug(`register failed: ${(e as Error).message}`);
       }
       return 0; // never break a Claude Code session start
+    case 'delete':
+      await deleteSession(requireConfig(), { id: positional[1], all: flags.has('--all'), yes: flags.has('--yes') });
+      return 0;
     case 'status':
       await status();
       return 0;

@@ -7,6 +7,7 @@ import { folderForKey, projectKeyFor } from './identity.js';
 import { acquireLock } from './lock.js';
 import { log } from './log.js';
 import { loadRegistry, remember, resolveLocalPath, saveRegistry } from './registry.js';
+import { loadDeleted, removeLocalSession } from './tombstones.js';
 import { detokenize, tokenize } from './transform.js';
 import {
   CONFLICT_RE,
@@ -32,7 +33,7 @@ export interface SyncOptions {
   waitMs: number;
 }
 
-const sessionsDir = (repo: string) => path.join(repo, 'sessions');
+export const sessionsDir = (repo: string) => path.join(repo, 'sessions');
 const machinesDir = (repo: string) => path.join(repo, 'machines');
 const machineFile = (repo: string, id: string) => path.join(machinesDir(repo), `${folderForKey(id)}.json`);
 
@@ -66,7 +67,7 @@ export async function resetToRemote(repo: string): Promise<void> {
   await gitOk(['clean', '-fdq'], repo);
 }
 
-async function commitAndPush(repo: string, message: string): Promise<'nothing' | 'pushed' | 'rejected'> {
+export async function commitAndPush(repo: string, message: string): Promise<'nothing' | 'pushed' | 'rejected'> {
   const status = await gitOk(['status', '--porcelain'], repo);
   if (!status.trim()) return 'nothing';
   await gitOk(['add', '-A'], repo);
@@ -94,6 +95,7 @@ async function applyLocalToRepo(cfg: Config, state: State): Promise<PushRound> {
   const machines = readJson<Record<string, MachineEntry>>(mFile, {});
   const round: PushRound = { written: 0, bytes: 0, conflicts: [], cache: {} };
   const now = new Date().toISOString();
+  const deleted = loadDeleted(repo);
 
   for (const p of listLocalProjects()) {
     if (!p.cwd) {
@@ -106,6 +108,7 @@ async function applyLocalToRepo(cfg: Config, state: State): Promise<PushRound> {
     const projDir = path.join(sessionsDir(repo), folder);
 
     for (const f of p.files) {
+      if (deleted.has(f.sessionId)) continue; // removed locally on the next pull
       const sig = fileSig(f.abs);
       if (!sig) continue;
       if (state.pushCache[f.abs] === sig) continue;
@@ -184,6 +187,11 @@ async function doPull(cfg: Config): Promise<void> {
   const repo = cfg.repoDir;
   const state = loadState();
   await resetToRemote(repo);
+  const deleted = loadDeleted(repo);
+  for (const id of deleted) {
+    // Every pull, so a deleted session that was still open here doesn't linger.
+    if (removeLocalSession(id)) log.info(`removed session ${id} (deleted with \`syncerbytugu delete\`)`);
+  }
   const reg = loadRegistry();
   const origins = sessionOrigins(repo);
   const ownConflictSuffix = `.conflict-${folderForKey(cfg.machineId)}.jsonl`;
@@ -216,6 +224,7 @@ async function doPull(cfg: Config): Promise<void> {
       if (sig && state.pullCache[rel + '|' + folder] === sig && fs.existsSync(dest)) continue;
 
       const sessionId = rel.split('/')[0].replace(CONFLICT_RE, '').replace(/\.jsonl$/, '');
+      if (deleted.has(sessionId)) continue;
       const origin = origins.get(sessionId) || 'remote';
       const res = mergeInto(
         dest,

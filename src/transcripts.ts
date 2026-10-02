@@ -67,6 +67,51 @@ export function readCwd(file: string): string | null {
   return null;
 }
 
+function lastJsonString(content: string, key: string): string | null {
+  const re = new RegExp(`"${key}":"((?:[^"\\\\]|\\\\.)*)"`, 'g');
+  let last: string | null = null;
+  for (const m of content.matchAll(re)) last = m[1];
+  if (last === null) return null;
+  try {
+    return JSON.parse(`"${last}"`) as string;
+  } catch {
+    return last;
+  }
+}
+
+/** First thing the user typed, skipping command wrappers and tool results. */
+function firstPrompt(content: string): string | null {
+  for (const line of content.split('\n', 400)) {
+    if (!line.includes('"type":"user"')) continue;
+    try {
+      const c = (JSON.parse(line.replaceAll('\u0001', '')) as { message?: { content?: unknown } }).message?.content;
+      const text =
+        typeof c === 'string'
+          ? c
+          : Array.isArray(c)
+            ? (c as { type?: string; text?: string }[]).find((x) => x.type === 'text')?.text
+            : undefined;
+      if (text && !text.startsWith('<')) return text;
+    } catch {
+      // partial line
+    }
+  }
+  return null;
+}
+
+export interface SessionInfo {
+  /** /rename title, else Claude's own title, else the first prompt */
+  title: string;
+  /** ISO time of the last entry, or '' */
+  updated: string;
+}
+
+export function sessionInfo(content: string): SessionInfo {
+  const title =
+    lastJsonString(content, 'customTitle') || lastJsonString(content, 'aiTitle') || firstPrompt(content) || '(untitled)';
+  return { title: title.replace(/\s+/g, ' ').trim(), updated: lastJsonString(content, 'timestamp') || '' };
+}
+
 export function countLines(content: string): number {
   if (!content) return 0;
   let n = 0;
