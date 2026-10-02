@@ -64,7 +64,8 @@ On the other PC, `cd` into the project (it can be at a different path) and run `
   `init` refuses a public GitHub repo.
 - A project that has never been opened or cloned on a PC can't be mapped there yet. Open it once in Claude Code (or clone
   it), and the next sync picks it up. `status` lists these projects.
-- Background auto-sync is Windows-only in v0 (one hidden scheduled task, runs on battery too). On macOS/Linux, the exit hook still pushes. Run `syncerbytugu pull`
+- Background auto-sync runs on Windows (one hidden scheduled task, runs on battery too) and macOS (a LaunchAgent,
+  `~/Library/LaunchAgents/com.syncerbytugu.sync.plist`). On Linux, the exit hook still pushes. Run `syncerbytugu pull`
   yourself or from cron.
 - The Claude Code Desktop app may not list sessions synced from another machine. Use the CLI `claude --resume`.
 

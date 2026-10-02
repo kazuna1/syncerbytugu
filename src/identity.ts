@@ -39,7 +39,9 @@ export function fallbackKey(projectPath: string, home = os.homedir()): string {
   if (!path.isAbsolute(rel) && !rel.startsWith('..')) {
     return `home/${rel.replace(/\\/g, '/').toLowerCase()}`.replace(/\/$/, '');
   }
-  return `name/${path.basename(projectPath.replace(/[\\/]+$/, '')).toLowerCase()}`;
+  // split on both separators: path.basename on macOS/Linux doesn't treat \ as one
+  const name = projectPath.split(/[\\/]/).filter(Boolean).pop() || projectPath;
+  return `name/${name.toLowerCase()}`;
 }
 
 /** Local path for a home/... key on this PC (null for other keys). */

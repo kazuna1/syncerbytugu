@@ -1,3 +1,4 @@
+import * as macos from './macos.js';
 import * as windows from './windows.js';
 
 export interface SchedulerStatus {
@@ -14,7 +15,7 @@ export interface Scheduler {
 const notYet: Scheduler = {
   async install() {
     throw new Error(
-      `Background auto-sync is not supported on ${process.platform} yet (Windows only in v0). ` +
+      `Background auto-sync is not supported on ${process.platform} yet (Windows and macOS only). ` +
         'Hooks still push on exit; run `syncerbytugu pull` manually or from cron.',
     );
   },
@@ -25,5 +26,7 @@ const notYet: Scheduler = {
 };
 
 export function scheduler(): Scheduler {
-  return process.platform === 'win32' ? windows : notYet;
+  if (process.platform === 'win32') return windows;
+  if (process.platform === 'darwin') return macos;
+  return notYet;
 }
