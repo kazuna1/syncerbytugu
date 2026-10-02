@@ -147,3 +147,48 @@ test('pruneRedundantConflicts removes only conflict copies the main file already
   assert.equal(pruneRedundantConflicts(dir), 1);
   assert.deepEqual(fs.readdirSync(dir).sort(), ['s.jsonl', 't.conflict-work.jsonl', 't.jsonl']);
 });
+
+test('a Mac path typed in a Windows chat is not a conflict on the Mac', () => {
+  const winRoot = 'C:\\Users\\tugu\\syncerbytugu';
+  const macRoot = '/Users/tugu/syncerbytugu';
+  const line = (o: object) => JSON.stringify(o) + '\n';
+  const dir = tmp();
+  const repoFile = path.join(dir, 'repo', 's.jsonl');
+  const winFile = path.join(dir, 'win', 's.jsonl');
+  const macFile = path.join(dir, 'mac', 's.jsonl');
+  fs.mkdirSync(path.dirname(winFile), { recursive: true });
+  const win = { tok: (s: string) => tokenize(s, winRoot, true), detok: (s: string) => detokenize(s, winRoot) };
+  const mac = { tok: (s: string) => tokenize(s, macRoot, false), detok: (s: string) => detokenize(s, macRoot) };
+  const push = (file: string, side: typeof win, who: string) =>
+    mergeInto(repoFile, side.tok(readText(file)), who, undefined, undefined, side.tok);
+  const pull = (file: string, side: typeof win) =>
+    mergeInto(file, readText(repoFile), 'remote', side.tok, side.detok, side.tok);
+
+  // Windows mentions the Mac's path as plain text, which stays literal in the repo
+  fs.writeFileSync(winFile, line({ uuid: '1', cwd: winRoot, text: `on the Mac it lives in ${macRoot}` }));
+  assert.equal(push(winFile, win, 'work'), 'written');
+  assert.equal(pull(macFile, mac), 'written');
+  assert.equal(push(macFile, mac, 'mac'), 'same', 'unchanged Mac copy is not a conflict');
+
+  // Windows continues; the Mac appends only the new line
+  fs.appendFileSync(winFile, line({ uuid: '2', cwd: winRoot, text: 'more' }));
+  assert.equal(push(winFile, win, 'work'), 'written');
+  const macBefore = readText(macFile);
+  assert.equal(pull(macFile, mac), 'written');
+  assert.equal(readText(macFile), macBefore + line({ uuid: '2', cwd: macRoot, text: 'more' }));
+  assert.equal(push(macFile, mac, 'mac'), 'same');
+
+  assert.deepEqual(fs.readdirSync(path.dirname(repoFile)), ['s.jsonl'], 'no conflict files');
+  assert.deepEqual(fs.readdirSync(path.dirname(macFile)), ['s.jsonl'], 'no conflict files');
+});
+
+test('pruneRedundantConflicts compares in the canonical space', () => {
+  const macRoot = '/Users/tugu/syncerbytugu';
+  const dir = tmp();
+  const main = JSON.stringify({ uuid: '1', text: macRoot }) + '\n' + JSON.stringify({ uuid: '2' }) + '\n';
+  fs.writeFileSync(path.join(dir, 's.jsonl'), main);
+  fs.writeFileSync(path.join(dir, 's.conflict-mac.jsonl'), tokenize(main.split('\n')[0] + '\n', macRoot, false));
+  assert.equal(pruneRedundantConflicts(dir), 0);
+  assert.equal(pruneRedundantConflicts(dir, (s) => tokenize(s, macRoot, false)), 1);
+  assert.deepEqual(fs.readdirSync(dir), ['s.jsonl']);
+});

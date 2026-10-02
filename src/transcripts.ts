@@ -222,12 +222,23 @@ export function mergeInto(
   conflictMachine: string,
   toCompare: (destContent: string) => string = (s) => s,
   toWrite: (incomingContent: string) => string = (s) => s,
+  canon: (s: string) => string = (s) => s,
 ): MergeResult {
-  const d = mergeFile(dest, incoming, toCompare, toWrite);
+  const d = mergeFile(dest, incoming, toCompare, toWrite, canon);
   if (d === 'write') return 'written';
   if (d !== 'conflict') return d;
-  mergeFile(conflictPath(dest, conflictMachine), incoming, toCompare, toWrite);
+  mergeFile(conflictPath(dest, conflictMachine), incoming, toCompare, toWrite, canon);
   return 'conflict';
+}
+
+/** Offset just past the nth newline in s, or -1 if s has fewer. */
+function afterLines(s: string, n: number): number {
+  let i = 0;
+  for (let k = 0; k < n; k++) {
+    i = s.indexOf('\n', i) + 1;
+    if (i === 0) return -1;
+  }
+  return i;
 }
 
 /**
@@ -235,19 +246,28 @@ export function mergeInto(
  * existing file is a prefix, only the new tail is appended, so lines a machine
  * already has keep their exact bytes. When they differ only in bookkeeping
  * lines, the file is replaced by the copy with more conversation.
+ *
+ * `canon` is applied to both sides before comparing. Sync passes tokenize() for
+ * this PC's root, so a root that another PC stored as plain text (a Mac path
+ * typed in a Windows chat) still matches the token this PC writes for it.
+ * It must not add or remove newlines: the tail is located by line count.
  */
 function mergeFile(
   file: string,
   incoming: string,
   toCompare: (s: string) => string,
   toWrite: (s: string) => string,
+  canon: (s: string) => string,
 ): MergeDecision {
   const raw = fs.existsSync(file) ? readText(file) : null;
   const existing = raw === null ? null : toCompare(raw);
-  const d = decide(incoming, existing);
+  const inc = canon(incoming);
+  const ex = existing === null ? null : canon(existing);
+  const d = decide(inc, ex);
   if (d === 'write') {
-    const appendable = raw !== null && normalizeTokens(incoming).startsWith(normalizeTokens(existing!));
-    writeText(file, appendable ? raw + toWrite(incoming.slice(existing!.length)) : toWrite(incoming));
+    const prefix = ex !== null && ex.endsWith('\n') && normalizeTokens(inc).startsWith(normalizeTokens(ex));
+    const at = prefix ? afterLines(incoming, ex!.split('\n').length - 1) : -1;
+    writeText(file, at >= 0 ? raw + toWrite(incoming.slice(at)) : toWrite(incoming));
   }
   return d;
 }

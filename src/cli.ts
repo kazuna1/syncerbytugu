@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { APP, requireConfig } from './config.js';
+import { APP, loadState, requireConfig } from './config.js';
 import { projectKeyFor } from './identity.js';
 import { log, setQuiet } from './log.js';
 import { loadRegistry, remember, saveRegistry } from './registry.js';
@@ -68,6 +68,11 @@ async function register(): Promise<void> {
   const reg = loadRegistry();
   if (remember(reg, key, cwd, 'hook')) saveRegistry(reg);
   log.debug(`register ${key} -> ${cwd}`);
+  // The last pull skipped this project for lack of a local folder; fetch its sessions now.
+  if (loadState().unmapped.includes(key)) {
+    log.debug(`pulling newly mapped ${key}`);
+    background(['pull', '--quiet', '--wait']);
+  }
 }
 
 /**
@@ -135,7 +140,8 @@ async function main(argv: string[]): Promise<number> {
       if (cmd !== 'push') await registerCwd();
       const fn = { push, pull, sync }[cmd];
       // Interactive and hook-triggered runs wait for a running sync; scheduled ones just skip.
-      const ran = await fn(cfg, { waitMs: cmd === 'push' || !quiet ? 30_000 : 0 });
+      const wait = cmd === 'push' || !quiet || flags.has('--wait');
+      const ran = await fn(cfg, { waitMs: wait ? 30_000 : 0 });
       if (!ran && !quiet) console.log('Another sync is running; try again in a moment.');
       return 0;
     }

@@ -14,7 +14,8 @@ export interface Config {
 
 // Bump when merge behavior changes so every file is compared again once.
 // 2: Windows/Mac root tokens compare as equal (0.1.1).
-const CACHE_VERSION = 2;
+// 3: a root another PC stored as plain text matches this PC's token.
+const CACHE_VERSION = 3;
 
 export interface State {
   cacheVersion?: number;

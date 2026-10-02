@@ -84,6 +84,8 @@ interface PushRound {
   /** size of the transcripts written into the clone, for the progress message */
   bytes: number;
   conflicts: string[];
+  /** conflict copies in the repo that turned out to hold nothing new */
+  pruned: number;
   cache: Record<string, string>;
 }
 
@@ -93,7 +95,7 @@ async function applyLocalToRepo(cfg: Config, state: State): Promise<PushRound> {
   const reg = loadRegistry();
   const mFile = machineFile(repo, cfg.machineId);
   const machines = readJson<Record<string, MachineEntry>>(mFile, {});
-  const round: PushRound = { written: 0, bytes: 0, conflicts: [], cache: {} };
+  const round: PushRound = { written: 0, bytes: 0, conflicts: [], pruned: 0, cache: {} };
   const now = new Date().toISOString();
   const deleted = loadDeleted(repo);
 
@@ -114,7 +116,7 @@ async function applyLocalToRepo(cfg: Config, state: State): Promise<PushRound> {
       if (state.pushCache[f.abs] === sig) continue;
       const incoming = tokenize(readText(f.abs), p.cwd);
       const dest = path.join(projDir, ...f.rel.split('/'));
-      const res = mergeInto(dest, incoming, cfg.machineId);
+      const res = mergeInto(dest, incoming, cfg.machineId, undefined, undefined, (s) => tokenize(s, p.cwd!));
       if (res === 'written') {
         round.written++;
         round.bytes += incoming.length;
@@ -128,6 +130,7 @@ async function applyLocalToRepo(cfg: Config, state: State): Promise<PushRound> {
       }
       round.cache[f.abs] = sig;
     }
+    if (fs.existsSync(projDir)) round.pruned += pruneRedundantConflicts(projDir, (s) => tokenize(s, p.cwd!));
     const metaFile = path.join(projDir, '.project.json');
     if (fs.existsSync(projDir) && !fs.existsSync(metaFile)) writeJson(metaFile, { key } satisfies ProjectMeta);
   }
@@ -142,7 +145,7 @@ async function doPush(cfg: Config): Promise<void> {
   for (let attempt = 1; attempt <= 3; attempt++) {
     await resetToRemote(cfg.repoDir);
     const round = await applyLocalToRepo(cfg, state);
-    const pruned = pruneRedundantConflicts(sessionsDir(cfg.repoDir));
+    const pruned = round.pruned + pruneRedundantConflicts(sessionsDir(cfg.repoDir));
     if (pruned) log.debug(`removed ${pruned} redundant conflict copy(ies) from the repo`);
     if (round.bytes > 5 * 1024 * 1024) {
       log.info(`uploading ${round.written} transcript file(s), ${Math.round(round.bytes / 1024 / 1024)} MB ...`);
@@ -218,7 +221,7 @@ async function doPull(cfg: Config): Promise<void> {
     for (const rel of listJsonlRecursive(projDir)) {
       if (rel.endsWith(ownConflictSuffix)) continue; // our own copy, already local
       const src = path.join(projDir, ...rel.split('/'));
-      if (isConflictFile(rel) && conflictIsRedundant(src)) continue; // nothing the main copy lacks
+      if (isConflictFile(rel) && conflictIsRedundant(src, (s) => tokenize(s, root))) continue; // nothing the main copy lacks
       const dest = path.join(slugDir, ...rel.split('/'));
       const sig = fileSig(src, `:${root}`);
       if (sig && state.pullCache[rel + '|' + folder] === sig && fs.existsSync(dest)) continue;
@@ -232,6 +235,7 @@ async function doPull(cfg: Config): Promise<void> {
         origin,
         (local) => tokenize(local, root),
         (incoming) => detokenize(incoming, root),
+        (s) => tokenize(s, root),
       );
       if (res === 'written') written++;
       if (res === 'conflict') {
