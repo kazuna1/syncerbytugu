@@ -208,11 +208,27 @@ async function doPull(cfg: Config): Promise<void> {
   } catch {
     // empty repo
   }
+  // The same project can sit in the repo under two keys: name/<folder> from before
+  // it had a git remote, and the remote's key after. Both map to one local folder,
+  // so a session in both comes only from the folder whose key this PC knows directly.
+  const rootId = (r: string) => (process.platform === 'win32' ? path.resolve(r).toLowerCase() : path.resolve(r));
+  const direct = new Map<string, Set<string>>();
+  for (const folder of folders) {
+    const projDir = path.join(sessionsDir(repo), folder);
+    const key = readJson<ProjectMeta | null>(path.join(projDir, '.project.json'), null)?.key;
+    if (!key || !reg[key]) continue;
+    const id = rootId(reg[key].path);
+    const set = direct.get(id) || new Set<string>();
+    for (const rel of listJsonlRecursive(projDir)) set.add(rel);
+    direct.set(id, set);
+  }
+
   for (const folder of folders) {
     const projDir = path.join(sessionsDir(repo), folder);
     const meta = readJson<ProjectMeta | null>(path.join(projDir, '.project.json'), null);
     if (!meta?.key) continue;
     const root = resolveLocalPath(reg, meta.key);
+    const shadowed = root && !reg[meta.key] ? direct.get(rootId(root)) : undefined;
     if (!root || !fs.existsSync(root)) {
       unmapped.push(meta.key);
       continue;
@@ -220,6 +236,7 @@ async function doPull(cfg: Config): Promise<void> {
     const slugDir = slugDirFor(root);
     for (const rel of listJsonlRecursive(projDir)) {
       if (rel.endsWith(ownConflictSuffix)) continue; // our own copy, already local
+      if (shadowed?.has(rel)) continue; // the directly mapped folder has this session
       const src = path.join(projDir, ...rel.split('/'));
       if (isConflictFile(rel) && conflictIsRedundant(src, (s) => tokenize(s, root))) continue; // nothing the main copy lacks
       const dest = path.join(slugDir, ...rel.split('/'));
