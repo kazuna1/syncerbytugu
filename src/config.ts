@@ -21,6 +21,8 @@ export interface State {
   cacheVersion?: number;
   lastPush?: string;
   lastPull?: string;
+  /** when a pull last scanned for new git clones */
+  lastScan?: string;
   /** local transcript path -> "mtimeMs:size" at the last successful push */
   pushCache: Record<string, string>;
   /** repo-relative path -> "mtimeMs:size:root" at the last pull */

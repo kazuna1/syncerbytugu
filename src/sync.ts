@@ -6,7 +6,7 @@ import { NETWORK_TIMEOUT_MS, git, gitOk } from './gitRepo.js';
 import { folderForKey, projectKeyFor } from './identity.js';
 import { acquireLock } from './lock.js';
 import { log } from './log.js';
-import { loadRegistry, remember, resolveLocalPath, saveRegistry } from './registry.js';
+import { loadRegistry, remember, resolveLocalPath, saveRegistry, scanIntoRegistry } from './registry.js';
 import { loadDeleted, removeLocalSession } from './tombstones.js';
 import { detokenize, tokenize } from './transform.js';
 import {
@@ -186,6 +186,9 @@ function sessionOrigins(repo: string): Map<string, string> {
   return new Map([...out].map(([k, v]) => [k, v.machine]));
 }
 
+/** How often a pull may scan for new clones while some projects are unmapped. */
+const SCAN_EVERY_MS = 2 * 60 * 1000;
+
 async function doPull(cfg: Config): Promise<void> {
   const repo = cfg.repoDir;
   const state = loadState();
@@ -196,6 +199,16 @@ async function doPull(cfg: Config): Promise<void> {
     if (removeLocalSession(id)) log.info(`removed session ${id} (deleted with \`syncerbytugu delete\`)`);
   }
   const reg = loadRegistry();
+  // A project cloned since the last pull has no known folder until Claude runs there
+  // (`claude -r` lists sessions before any hook fires), so look for new clones.
+  if (state.unmapped.length && Date.now() - Date.parse(state.lastScan || '0') > SCAN_EVERY_MS) {
+    const added = await scanIntoRegistry(reg, cfg.scanRoots);
+    state.lastScan = new Date().toISOString();
+    if (added) {
+      saveRegistry(reg);
+      log.debug(`found ${added} new project folder(s)`);
+    }
+  }
   const origins = sessionOrigins(repo);
   const ownConflictSuffix = `.conflict-${folderForKey(cfg.machineId)}.jsonl`;
   const unmapped: string[] = [];
